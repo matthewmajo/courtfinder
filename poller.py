@@ -1,5 +1,6 @@
 import requests
 import os
+import json
 from datetime import datetime, timedelta
 
 # ==========================================
@@ -9,121 +10,130 @@ LOCATIONS = {
     "Hyde Park": "hyde-park-courts",
     "Regent's Park": "the-regents-park-courts"
 }
+STATE_FILE = "state.json"
 
 def is_time_allowed(date_str, time_str):
-    """
-    Checks if the available time slot matches your required schedule:
-    - Sat/Sun: All day
-    - Tue/Wed/Thu: 8 PM (20:00) onwards
-    - Mon/Fri: 7 PM (19:00) onwards
-    """
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-    weekday = date_obj.weekday() # 0 = Mon, 6 = Sun
-    hour = int(time_str.split(":")[0]) # Extracts the '14' from '14:00'
+    weekday = date_obj.weekday() 
+    hour = int(time_str.split(":")[0]) 
     
     if weekday in [5, 6]: 
-        # Saturday, Sunday: All day
         return True
     elif weekday in [1, 2, 3]: 
-        # Tuesday, Wednesday, Thursday: >= 20:00
         return hour >= 20
     elif weekday in [0, 4]: 
-        # Monday, Friday: >= 19:00
         return hour >= 19
-        
     return False
 
-def poll_courts():
-    print(f"Running poll at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}...")
+# ==========================================
+# MEMORY (STATE) MANAGEMENT
+# ==========================================
+def load_memory():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, 'r') as f:
+            try:
+                return json.load(f)
+            except:
+                return {}
+    return {}
+
+def save_memory(state):
+    with open(STATE_FILE, 'w') as f:
+        json.dump(state, f, indent=4)
+
+# ==========================================
+# DISCORD INTERACTION
+# ==========================================
+def send_discord_msg(webhook_url, location, target_date, time_str, slug):
+    # Appending ?wait=true tells Discord to return the message ID so we can save it!
+    url = webhook_url if "?wait=true" in webhook_url else f"{webhook_url}?wait=true"
     
-    # Generate a list of dates: Today + the next 7 days
+    day_name = datetime.strptime(target_date, "%Y-%m-%d").strftime("%A")
+    booking_link = f"https://sportsandleisureroyalparks.bookings.flow.onl/location/{slug}/tennis/{target_date}/by-time"
+    
+    msg = f"🎾 **NEW SLOT:** {location} | {day_name}, {target_date} @ **{time_str}**\n🔗 <{booking_link}>"
+    
+    resp = requests.post(url, json={"content": msg})
+    if resp.status_code in [200, 201]:
+        # Return the unique Discord Message ID
+        return resp.json().get("id")
+    return None
+
+def delete_discord_msg(webhook_url, message_id):
+    # To delete, we send a DELETE request directly to the message ID URL
+    base_url = webhook_url.split("?")[0] 
+    delete_url = f"{base_url}/messages/{message_id}"
+    requests.delete(delete_url)
+
+# ==========================================
+# MAIN LOGIC
+# ==========================================
+def poll_courts():
+    print(f"Running stateful poll at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}...")
+    
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        print("Webhook missing, exiting.")
+        return
+        
+    memory = load_memory()
+    currently_available_keys = set()
+    
     dates_to_check = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(8)]
     
-    # We now store data by date, then by location
-    all_available_slots = {}
-    
+    # 1. Scrape all current slots
     for target_date in dates_to_check:
-        day_name = datetime.strptime(target_date, "%Y-%m-%d").strftime("%A")
-        
         for name, slug in LOCATIONS.items():
             api_url = f"https://flow.onl/api/activities/venue/{slug}/activity/tennis/v2/times"
-            params = {"date": target_date}
-            
             headers = {
                 "accept": "application/json",
-                "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
                 "origin": "https://sportsandleisureroyalparks.bookings.flow.onl",
-                "referer": f"https://sportsandleisureroyalparks.bookings.flow.onl/location/{slug}/tennis/{target_date}/by-time",
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-site",
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
             
             try:
-                response = requests.get(api_url, headers=headers, params=params)
-                
+                response = requests.get(api_url, headers=headers, params={"date": target_date})
                 if response.status_code != 200:
                     continue
-
-                try:
-                    json_response = response.json()
-                except Exception:
-                    print(f"❌ BLOCKED: Failed to parse JSON for {name} on {target_date}.")
-                    continue
-                
-                available_slots = []
-                
-                for slot in json_response.get("data", []):
-                    status = slot.get("action_to_show", {}).get("status", "")
                     
-                    if status == "BOOK":
-                        time = slot.get("starts_at", {}).get("format_24_hour", "Unknown Time")
+                for slot in response.json().get("data", []):
+                    if slot.get("action_to_show", {}).get("status") == "BOOK":
+                        time_str = slot.get("starts_at", {}).get("format_24_hour")
                         
-                        # Apply your custom time filters!
-                        if time != "Unknown Time" and is_time_allowed(target_date, time):
-                            available_slots.append(time)
-
-                if available_slots:
-                    print(f"✅ SLOTS FOUND: {name} | {target_date} ({day_name}) | {', '.join(available_slots)}")
-                    
-                    if target_date not in all_available_slots:
-                        all_available_slots[target_date] = {}
-                    all_available_slots[target_date][name] = available_slots
-                    
+                        if time_str and is_time_allowed(target_date, time_str):
+                            # Create a unique key for this exact slot (e.g., "Hyde Park|2026-07-24|19:00")
+                            unique_key = f"{name}|{target_date}|{time_str}"
+                            currently_available_keys.add(unique_key)
+                            
             except Exception as e:
-                print(f"Script failed for {name} on {target_date}: {e}")
+                print(f"Failed pulling data: {e}")
 
-    if all_available_slots:
-        send_discord_alert(all_available_slots)
-    else:
-        print("❌ No matching slots available in the next 7 days.")
-
-def send_discord_alert(available_data):
-    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
-    
-    if not webhook_url:
-        print("Discord Webhook URL missing. Skipping notification and just printing logs.")
-        return
-
-    msg_lines = ["🎾 **Tennis Courts Available!**\n"]
-    
-    # Format the message nicely for multiple dates and locations
-    for target_date, locations in available_data.items():
-        day_name = datetime.strptime(target_date, "%Y-%m-%d").strftime("%A")
-        msg_lines.append(f"📅 **{day_name}, {target_date}**")
-        
-        for location, slots in locations.items():
-            slug = LOCATIONS[location]
-            booking_link = f"https://sportsandleisureroyalparks.bookings.flow.onl/location/{slug}/tennis/{target_date}/by-time"
+    # 2. Process NEW slots (Send messages)
+    for key in currently_available_keys:
+        if key not in memory:
+            # We found a new slot!
+            print(f"✅ NEW SLOT FOUND: {key}")
+            name, target_date, time_str = key.split("|")
+            slug = LOCATIONS[name]
             
-            msg_lines.append(f"📍 {location}: {', '.join(slots)}")
-            msg_lines.append(f"🔗 <{booking_link}>")
+            msg_id = send_discord_msg(webhook_url, name, target_date, time_str, slug)
+            if msg_id:
+                memory[key] = msg_id # Save it to memory
+            time.sleep(1) # Prevent Discord rate limits
             
-        msg_lines.append("") # Blank line to separate dates
+    # 3. Process GONE slots (Delete messages)
+    # We must convert memory keys to a list so we can delete items from the dictionary while looping
+    for key in list(memory.keys()):
+        if key not in currently_available_keys:
+            print(f"❌ SLOT BOOKED (Removing): {key}")
+            msg_id = memory[key]
+            delete_discord_msg(webhook_url, msg_id)
+            del memory[key] # Erase from memory
+            time.sleep(1) 
 
-    msg = "\n".join(msg_lines)
-    requests.post(webhook_url, json={"content": msg})
+    # 4. Save the updated memory
+    save_memory(memory)
+    print("Poll complete. Memory saved.")
 
 if __name__ == "__main__":
     poll_courts()
