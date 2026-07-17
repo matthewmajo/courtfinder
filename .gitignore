@@ -1,9 +1,0 @@
-# Memory file for the bot
-state.json
-
-# Python cache (keeps your repo clean)
-__pycache__/
-*.pyc
-
-# Local environment folders
-.env
