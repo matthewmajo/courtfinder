@@ -20,9 +20,9 @@ def is_time_allowed(date_str, time_str):
     if weekday in [5, 6]: 
         return True
     elif weekday in [1, 2, 3]: 
-        return hour >= 20
+        return True
     elif weekday in [0, 4]: 
-        return hour >= 19
+        return True
     return False
 
 # ==========================================
