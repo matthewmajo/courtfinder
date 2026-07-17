@@ -5,6 +5,10 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch: 
 
+# We must grant the script permission to write the state file back to the repo
+permissions:
+  contents: write
+
 jobs:
   run-poller:
     runs-on: ubuntu-latest
@@ -21,7 +25,13 @@ jobs:
         run: pip install -r requirements.txt
         
       - name: Run Python script
-        # THIS IS THE CRITICAL ADDITION FOR DISCORD
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python poller.py
+        
+      - name: Save Memory (state.json)
+        run: |
+          git config --global user.name 'GitHub Action Bot'
+          git config --global user.email 'action@github.com'
+          git add state.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update court availability memory" && git push)
