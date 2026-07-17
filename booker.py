@@ -4,10 +4,10 @@ import os
 from datetime import datetime
 
 # ==========================================
-# 1. YOUR DETAILS (Now loaded securely from GitHub Secrets)
+# 1. YOUR DETAILS
 # ==========================================
-EMAIL = os.environ.get("EMAIL")
-PASSWORD = os.environ.get("PASSWORD")
+# This reads your token directly from GitHub Secrets
+BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
 DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK_URL")
 
 TARGET_DATE = "2026-07-24"
@@ -22,54 +22,10 @@ PRIORITY_RULES = [
 ]
 
 # ==========================================
-# 3. AUTHENTICATION LOGIC
-# ==========================================
-def auto_login():
-    """Logs into the website and returns a fresh Bearer Token."""
-    if not EMAIL or not PASSWORD:
-        print("❌ EMAIL or PASSWORD missing from GitHub Secrets!")
-        return None
-        
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Authenticating as {EMAIL}...")
-    
-    # NOTE: If the login fails, check your Network tab and update this URL and payload
-    login_url = "https://flow.onl/api/login" 
-    payload = {
-        "email": EMAIL,
-        "password": PASSWORD
-    }
-    
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "origin": "https://sportsandleisureroyalparks.bookings.flow.onl",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
-    
-    try:
-        resp = requests.post(login_url, json=payload, headers=headers)
-        
-        if resp.status_code in [200, 201]:
-            data = resp.json()
-            # The token is usually nested in the response. We check a few common locations.
-            token = data.get("token") or data.get("access_token") or data.get("data", {}).get("token")
-            if token:
-                print("✅ Successfully logged in and generated fresh token!")
-                return token
-                
-        print(f"❌ Login failed. Status: {resp.status_code}")
-        print(f"Server response: {resp.text[:200]}")
-        return None
-        
-    except Exception as e:
-        print(f"❌ Login error: {e}")
-        return None
-
-
-# ==========================================
-# 4. THE BOOKER LOGIC
+# 3. THE BOOKER LOGIC
 # ==========================================
 def expand_priority_rules(rules):
+    """Converts the start/end rules into a flat, prioritized list of individual slots."""
     queue = []
     for rule in rules:
         start_hour = int(rule["start"].split(":")[0])
@@ -96,13 +52,11 @@ def send_alert(msg):
 def hunt_for_court():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Booker Started.")
     
-    # 1. Automate the Login
-    bearer_token = auto_login()
-    if not bearer_token:
-        print("Stopping script because login failed.")
+    if not BEARER_TOKEN:
+        print("❌ BEARER_TOKEN missing! Make sure it is saved in GitHub Secrets.")
         return
-        
-    print(f"\nTarget Date: {TARGET_DATE}")
+
+    print(f"Target Date: {TARGET_DATE}\n")
     
     priority_queue = expand_priority_rules(PRIORITY_RULES)
     
@@ -111,7 +65,7 @@ def hunt_for_court():
         print(f"  {i}. {p['location']} @ {p['time']}")
     print("-" * 30)
         
-    headers = get_base_headers(bearer_token)
+    headers = get_base_headers(BEARER_TOKEN)
     locations_to_check = list(set([p["location"] for p in priority_queue]))
     
     while True:
