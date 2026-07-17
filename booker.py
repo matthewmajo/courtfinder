@@ -17,9 +17,9 @@ DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1527699581184508067/kw7Bvq3Y
 # The script will read these from top to bottom and automatically 
 # generate individual time slots for every hour in the range (inclusive).
 PRIORITY_RULES = [
-    {"location": "hyde-park-courts", "start": "19:00", "end": "20:00"},         # Generates 19:00, 20:00
-    {"location": "the-regents-park-courts", "start": "18:00", "end": "20:00"},  # Generates 18:00, 19:00, 20:00
-    {"location": "hyde-park-courts", "start": "07:00", "end": "08:00"},         # Generates 07:00, 08:00
+    {"location": "hyde-park-courts", "start": "19:00", "end": "21:00"},         # Generates 19:00, 20:00
+    {"location": "the-regents-park-courts", "start": "19:00", "end": "21:00"},  # Generates 18:00, 19:00, 20:00
+    {"location": "the-regents-park-courts", "start": "12:00", "end": "15:00"}     # Generates 07:00, 08:00
 ]
 
 
