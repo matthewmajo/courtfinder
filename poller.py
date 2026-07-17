@@ -26,10 +26,10 @@ def is_time_allowed(date_str, time_str):
         return True
     elif weekday in [1, 2, 3]: 
         # Tuesday, Wednesday, Thursday: >= 20:00
-        return hour >= 20
+        return True
     elif weekday in [0, 4]: 
         # Monday, Friday: >= 19:00
-        return hour >= 19
+        return True
         
     return False
 
