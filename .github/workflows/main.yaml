@@ -21,4 +21,7 @@ jobs:
         run: pip install -r requirements.txt
         
       - name: Run Python script
+        # THIS IS THE CRITICAL ADDITION FOR DISCORD
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python poller.py
